@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<title>Bonnaroo 2026 — Where Am I?</title>
+<style>
+  :root {
+    --y: #F5C842; --o: #E8762B; --r: #D63A2F;
+    --bg: #141414; --card: #222; --border: #333;
+    --text: #F0EDE6; --muted: #888;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text);
+    font-family: Arial, sans-serif; overflow: hidden; }
+
+  body { display: flex; flex-direction: column; }
+
+  /* ── Header ── */
+  header {
+    background: var(--card);
+    border-bottom: 2px solid var(--y);
+    padding: 8px 12px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .logo { font-size: 16px; font-weight: 900; color: var(--y); letter-spacing: 1px; text-transform: uppercase; }
+  .logo em { color: var(--o); font-style: normal; }
+  .gps-pill {
+    display: flex; align-items: center; gap: 6px;
+    background: #2a2a2a; border-radius: 20px;
+    padding: 4px 10px; font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .5px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #444; flex-shrink: 0; }
+  .dot.seek { background: var(--y); animation: blink 1s infinite; }
+  .dot.ok   { background: #4CAF50; }
+  .dot.err  { background: var(--r); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex; background: var(--card);
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .tab {
+    flex: 1; padding: 9px 4px; border: none; background: none;
+    font-size: 12px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--muted); cursor: pointer;
+    border-bottom: 3px solid transparent;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tab.on { color: var(--y); border-bottom-color: var(--y); }
+
+  /* ── Map area ── */
+  .view { flex: 1; position: relative; display: none; overflow: hidden; }
+  .view.on { display: block; }
+
+  .pan-wrap {
+    width: 100%; height: 100%;
+    overflow: scroll; -webkit-overflow-scrolling: touch;
+    cursor: grab;
+  }
+  .pan-wrap:active { cursor: grabbing; }
+
+  .map-stage {
+    position: relative; display: inline-block;
+    transform-origin: 0 0;
+  }
+
+  svg.roo-map { display: block; }
+
+  /* GPS dot */
+  .you {
+    position: absolute; display: none;
+    width: 16px; height: 16px;
+    background: #3B8EF5; border: 2.5px solid #fff;
+    border-radius: 50%;
+    transform: translate(-50%,-50%);
+    z-index: 50; pointer-events: none;
+    box-shadow: 0 0 0 5px rgba(59,142,245,.3);
+  }
+  .you.on { display: block; }
+  .you::after {
+    content:''; position:absolute;
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 2px solid rgba(59,142,245,.5);
+    top:50%; left:50%; transform:translate(-50%,-50%);
+    animation: ripple 2s infinite;
+  }
+  @keyframes ripple {
+    0%  { transform:translate(-50%,-50%) scale(.6); opacity:1; }
+    100%{ transform:translate(-50%,-50%) scale(1.8); opacity:0; }
+  }
+
+  .camp-mark {
+    position: absolute; display: none;
+    font-size: 22px;
+    transform: translate(-50%,-90%);
+    z-index: 49; pointer-events: none;
+    filter: drop-shadow(0 1px 3px #000);
+  }
+  .camp-mark.on { display: block; }
+
+  /* ── Bottom info bar ── */
+  .bar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(20,20,20,.93);
+    border-top: 1px solid var(--border);
+    padding: 7px 12px;
+    display: flex; justify-content: space-between; align-items: center;
+    z-index: 60; font-size: 11px;
+  }
+  .bar .coords { color: var(--muted); font-family: monospace; font-size: 10px; }
+  .bar .near   { color: var(--y); font-weight: 700; font-size: 12px; text-align: right; }
+
+  /* center btn */
+  .ctr-btn {
+    position: absolute; top: 10px; right: 10px; z-index: 60;
+    width: 42px; height: 42px; border-radius: 50%;
+    background: var(--y); color: var(--bg);
+    border: none; font-size: 20px; cursor: pointer;
+    box-shadow: 0 2px 8px #0008;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* outside badge */
+  .badge {
+    position: absolute; top: 10px; left: 10px; z-index: 60;
+    background: var(--r); color: #fff; font-size: 10px;
+    font-weight: 700; padding: 4px 10px; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: .5px; display: none;
+  }
+  .badge.on { display: block; }
+
+  /* ── GPS prompt overlay ── */
+  #prompt {
+    position: fixed; inset: 0; background: rgba(0,0,0,.88);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 999; padding: 24px;
+  }
+  .card {
+    background: var(--card); border: 2px solid var(--y);
+    border-radius: 14px; padding: 28px 22px;
+    max-width: 320px; text-align: center;
+  }
+  .card h2 { font-size: 20px; color: var(--y); text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 10px; }
+  .card p  { font-size: 13px; color: var(--muted); line-height: 1.55; margin-bottom: 20px; }
+  .btn-yes {
+    width: 100%; padding: 13px; border: none; border-radius: 8px;
+    background: var(--y); color: var(--bg);
+    font-size: 15px; font-weight: 900; text-transform: uppercase;
+    letter-spacing: 1px; cursor: pointer;
+  }
+  .btn-no {
+    width: 100%; margin-top: 10px; padding: 10px; border: 1px solid #444;
+    border-radius: 8px; background: none; color: var(--muted);
+    font-size: 13px; cursor: pointer;
+  }
+
+  /* legend */
+  .legend {
+    position: absolute; bottom: 46px; left: 8px; z-index: 60;
+    background: rgba(20,20,20,.85); border: 1px solid #333;
+    border-radius: 8px; padding: 6px 8px; font-size: 9px;
+    color: var(--muted); line-height: 1.7; pointer-events: none;
+    max-width: 130px;
+  }
+  .leg-row { display: flex; align-items: center; gap: 5px; }
+  .leg-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div id="prompt">
+  <div class="card">
+    <h2>🎪 Roo '26</h2>
+    <p>Tap below to share your location so we can show <strong>exactly where you are</strong> on the Centeroo &amp; Outeroo maps.</p>
+    <button class="btn-yes" id="btnGPS">📍 Enable My Location</button>
+    <button class="btn-no"  id="btnSkip">Just show the maps</button>
+  </div>
+</div>
+
+<header>
+  <div class="logo">Bonnaroo <em>'26</em> — Where Am I?</div>
+  <div class="gps-pill"><div class="dot" id="dot"></div><span id="glbl">Off</span></div>
+</header>
+
+<div class="tabs">
+  <button class="tab on" data-m="c">🎵 Centeroo</button>
+  <button class="tab"    data-m="o">⛺ Outeroo</button>
+</div>
+
+<!-- CENTEROO -->
+<div class="view on" id="v-c">
+  <div class="pan-wrap" id="pw-c">
+    <div class="map-stage" id="ms-c">
+      <!-- drawn by JS -->
+      <div class="you" id="you-c"></div>
+      <div class="camp-mark" id="cm-c">⛺</div>
+    </div>
+  </div>
+  <button class="ctr-btn" id="cb-c">◎</button>
+  <button class="ctr-btn" id="camp-c" style="top:60px;font-size:17px" title="Save camp">⛺</button>
+  <div class="badge" id="bdg-c">Outside Centeroo</div>
+  <div class="bar">
+    <span class="coords" id="crd-c">—</span>
+    <span class="near"   id="nr-c"></span>
+  </div>
+  <div class="legend" id="leg-c"></div>
+</div>
+
+<!-- OUTEROO -->
+<div class="view" id="v-o">
+  <div class="pan-wrap" id="pw-o">
+    <div class="map-stage" id="ms-o">
+      <div class="you" id="you-o"></div>
+      <div class="camp-mark" id="cm-o">⛺</div>
+    </div>
+  </div>
+  <button class="ctr-btn" id="cb-o">◎</button>
+  <button class="ctr-btn" id="camp-o" style="top:60px;font-size:17px" title="Save camp">⛺</button>
+  <div class="badge" id="bdg-o">Outside Outeroo</div>
+  <div class="bar">
+    <span class="coords" id="crd-o">—</span>
+    <span class="near"   id="nr-o"></span>
+  </div>
+  <div class="legend" id="leg-o"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+//  MAP DATA  (lat/lon bounds calibrated to Great Stage Park)
+//  Farm center: 35.4846°N  86.0853°W
+// ═══════════════════════════════════════════════════
+
+// -- CENTEROO --
+// ~650m wide × ~560m tall stage area
+const CB = { n:35.48820, s:35.48230, w:-86.09180, e:-86.08440 };
+
+// Centeroo landmarks  [name, lat, lon, color, shape]
+// shapes: rect, circle, text-only
+const CPOIS = [
+  // Stages
+  { n:"What Stage",     lat:35.48710, lon:-86.08660, col:"#E8762B", r:38, type:"stage" },
+  { n:"That Tent",      lat:35.48290, lon:-86.08590, col:"#E8762B", r:28, type:"stage" },
+  { n:"Which Stage",    lat:35.48600, lon:-86.09020, col:"#F5C842", r:30, type:"stage" },
+  { n:"This Tent",      lat:35.48400, lon:-86.09020, col:"#F5C842", r:26, type:"stage" },
+  { n:"The Other",      lat:35.48350, lon:-86.08780, col:"#B06ECC", r:24, type:"stage" },
+  { n:"Where Stage",    lat:35.48470, lon:-86.08640, col:"#B06ECC", r:22, type:"stage" },
+  { n:"How Stage",      lat:35.48530, lon:-86.08870, col:"#4CAF50", r:18, type:"stage" },
+  // Features
+  { n:"The Arch (Entry)",lat:35.48270, lon:-86.08850, col:"#3B8EF5", r:14, type:"gate" },
+  { n:"Centeroo Entry N",lat:35.48790, lon:-86.08840, col:"#3B8EF5", r:14, type:"gate" },
+  { n:"Snake & Jake's",  lat:35.48510, lon:-86.08820, col:"#e55", r:12, type:"feat" },
+  { n:"Vendors Row",     lat:35.48460, lon:-86.08940, col:"#888", r:10, type:"feat" },
+  { n:"Medical",         lat:35.48560, lon:-86.08710, col:"#e55", r:10, type:"feat" },
+  { n:"Info Booth",      lat:35.48490, lon:-86.09080, col:"#3B8EF5", r:10, type:"feat" },
+];
+
+// -- OUTEROO --
+// Full 700-acre farm  ~2.2km × 2km
+const OB = { n:35.49900, s:35.47400, w:-86.10500, e:-86.07400 };
+
+const OPOIS = [
+  // Plazas / camping hubs
+  { n:"Plaza 1",          lat:35.49250, lon:-86.09650, col:"#F5C842", r:22, type:"plaza" },
+  { n:"Plaza 2",          lat:35.48950, lon:-86.09800, col:"#F5C842", r:22, type:"plaza" },
+  { n:"Plaza 3",          lat:35.48700, lon:-86.09900, col:"#F5C842", r:22, type:"plaza" },
+  { n:"Plaza 4",          lat:35.48420, lon:-86.09700, col:"#F5C842", r:22, type:"plaza" },
+  { n:"Plaza 5 (Groop)",  lat:35.48150, lon:-86.09500, col:"#E8762B", r:24, type:"plaza" },
+  { n:"Plaza 6",          lat:35.47950, lon:-86.09100, col:"#F5C842", r:22, type:"plaza" },
+  { n:"Plaza 7",          lat:35.47780, lon:-86.08650, col:"#F5C842", r:22, type:"plaza" },
+  { n:"Plaza 8",          lat:35.48000, lon:-86.08250, col:"#F5C842", r:22, type:"plaza" },
+  { n:"Plaza 9",          lat:35.48400, lon:-86.08100, col:"#F5C842", r:22, type:"plaza" },
+  { n:"Moon Colony",      lat:35.48950, lon:-86.08900, col:"#B06ECC", r:26, type:"plaza" },
+  // Entrances / services
+  { n:"Main Gate",        lat:35.48300, lon:-86.10300, col:"#3B8EF5", r:18, type:"gate" },
+  { n:"Box Office",       lat:35.48150, lon:-86.10250, col:"#3B8EF5", r:16, type:"gate" },
+  { n:"Medical Hub",      lat:35.48650, lon:-86.09350, col:"#e55",    r:16, type:"feat" },
+  { n:"House of Yes",     lat:35.49100, lon:-86.09050, col:"#e55",    r:18, type:"stage" },
+  { n:"Rest Stop",        lat:35.48200, lon:-86.09950, col:"#4CAF50", r:16, type:"feat" },
+  { n:"Galactic Garden",  lat:35.48050, lon:-86.09400, col:"#4CAF50", r:16, type:"feat" },
+  { n:"Centeroo Arch",    lat:35.48270, lon:-86.08850, col:"#aaa",    r:14, type:"gate" },
+  { n:"Shower Blk N",     lat:35.49050, lon:-86.09500, col:"#3B8EF5", r:12, type:"feat" },
+  { n:"Shower Blk S",     lat:35.47900, lon:-86.09200, col:"#3B8EF5", r:12, type:"feat" },
+];
+
+// ═══════════════════════════════════════════════════
+//  SVG MAP DRAWING
+// ═══════════════════════════════════════════════════
+const SVG_W = { c: 800, o: 900 };
+const SVG_H = { c: 700, o: 900 };
+
+function geo2px(lat, lon, bounds, W, H) {
+  const x = (lon - bounds.w) / (bounds.e - bounds.w) * W;
+  const y = (bounds.n - lat) / (bounds.n - bounds.s) * H;
+  return [x, y];
+}
+
+function mkSVG(id, pois, bounds, W, H, legendEl) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns,"svg");
+  svg.setAttribute("width", W);
+  svg.setAttribute("height", H);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.classList.add("roo-map");
+
+  // background
+  const bg = document.createElementNS(ns,"rect");
+  bg.setAttribute("width", W); bg.setAttribute("height", H);
+  bg.setAttribute("fill", "#1c1c1c");
+  svg.appendChild(bg);
+
+  // subtle grid
+  for (let i=0; i<W; i+=80) {
+    const l = document.createElementNS(ns,"line");
+    l.setAttribute("x1",i); l.setAttribute("y1",0);
+    l.setAttribute("x2",i); l.setAttribute("y2",H);
+    l.setAttribute("stroke","#2a2a2a"); l.setAttribute("stroke-width","1");
+    svg.appendChild(l);
+  }
+  for (let j=0; j<H; j+=80) {
+    const l = document.createElementNS(ns,"line");
+    l.setAttribute("x1",0); l.setAttribute("y1",j);
+    l.setAttribute("x2",W); l.setAttribute("y2",j);
+    l.setAttribute("stroke","#2a2a2a"); l.setAttribute("stroke-width","1");
+    svg.appendChild(l);
+  }
+
+  // compass rose
+  const cx=W-36, cy=36;
+  ["N","S","E","W"].forEach((dir,i)=>{
+    const ang=[0,180,90,270][i]*Math.PI/180;
+    const tx=cx+Math.sin(ang)*22, ty=cy-Math.cos(ang)*22;
+    const t=document.createElementNS(ns,"text");
+    t.setAttribute("x",tx); t.setAttribute("y",ty+4);
+    t.setAttribute("text-anchor","middle");
+    t.setAttribute("fill","#F5C842");
+    t.setAttribute("font-size","11");
+    t.setAttribute("font-weight","bold");
+    t.textContent=dir;
+    svg.appendChild(t);
+  });
+  const cr=document.createElementNS(ns,"circle");
+  cr.setAttribute("cx",cx); cr.setAttribute("cy",cy); cr.setAttribute("r","18");
+  cr.setAttribute("fill","none"); cr.setAttribute("stroke","#333"); cr.setAttribute("stroke-width","1");
+  svg.insertBefore(cr, svg.children[svg.children.length-4]);
+
+  // title
+  const title = document.createElementNS(ns,"text");
+  title.setAttribute("x","12"); title.setAttribute("y","20");
+  title.setAttribute("fill","#F5C842"); title.setAttribute("font-size","14");
+  title.setAttribute("font-weight","bold"); title.setAttribute("font-family","Arial");
+  title.textContent = id==="c" ? "CENTEROO — Bonnaroo 2026" : "OUTEROO — Bonnaroo 2026";
+  svg.appendChild(title);
+
+  // draw POIs
+  pois.forEach(p => {
+    const [px,py] = geo2px(p.lat, p.lon, bounds, W, H);
+    const g = document.createElementNS(ns,"g");
+
+    // outer glow ring for stages
+    if (p.type==="stage") {
+      const glow = document.createElementNS(ns,"circle");
+      glow.setAttribute("cx",px); glow.setAttribute("cy",py);
+      glow.setAttribute("r",p.r+6);
+      glow.setAttribute("fill", p.col+"33");
+      glow.setAttribute("stroke", p.col+"66");
+      glow.setAttribute("stroke-width","1");
+      svg.appendChild(glow);
+    }
+
+    // main dot
+    const shape = document.createElementNS(ns, p.type==="gate"?"rect":"circle");
+    if (p.type==="gate") {
+      shape.setAttribute("x",px-p.r); shape.setAttribute("y",py-p.r);
+      shape.setAttribute("width",p.r*2); shape.setAttribute("height",p.r*2);
+      shape.setAttribute("rx","3");
+    } else {
+      shape.setAttribute("cx",px); shape.setAttribute("cy",py);
+      shape.setAttribute("r",p.r);
+    }
+    shape.setAttribute("fill", p.col);
+    shape.setAttribute("opacity","0.9");
+    svg.appendChild(shape);
+
+    // label
+    const lbl = document.createElementNS(ns,"text");
+    lbl.setAttribute("x", px);
+    lbl.setAttribute("y", py + p.r + 12);
+    lbl.setAttribute("text-anchor","middle");
+    lbl.setAttribute("fill","#F0EDE6");
+    lbl.setAttribute("font-size", p.r > 20 ? "11" : "9");
+    lbl.setAttribute("font-family","Arial");
+    lbl.setAttribute("font-weight","bold");
+    // shadow outline
+    lbl.setAttribute("paint-order","stroke");
+    lbl.setAttribute("stroke","#141414");
+    lbl.setAttribute("stroke-width","2.5");
+    lbl.textContent = p.n;
+    svg.appendChild(lbl);
+  });
+
+  document.getElementById("ms-"+id).insertBefore(svg, document.getElementById("you-"+id));
+
+  // legend
+  const types = [
+    {t:"stage",  col:"#E8762B", lbl:"Main Stage / Tent"},
+    {t:"plaza",  col:"#F5C842", lbl:"Plaza / Camping Hub"},
+    {t:"gate",   col:"#3B8EF5", lbl:"Entry / Gate"},
+    {t:"feat",   col:"#4CAF50", lbl:"Amenity / Feature"},
+    {t:"you",    col:"#3B8EF5", lbl:"You are here ●"},
+  ];
+  legendEl.innerHTML = types.map(t=>
+    `<div class="leg-row"><div class="leg-dot" style="background:${t.col}"></div>${t.lbl}</div>`
+  ).join("");
+}
+
+mkSVG("c", CPOIS, CB, SVG_W.c, SVG_H.c, document.getElementById("leg-c"));
+mkSVG("o", OPOIS, OB, SVG_W.o, SVG_H.o, document.getElementById("leg-o"));
+
+// ═══════════════════════════════════════════════════
+//  TABS
+// ═══════════════════════════════════════════════════
+let activeMap = "c";
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t=>t.classList.remove("on"));
+    document.querySelectorAll(".view").forEach(v=>v.classList.remove("on"));
+    btn.classList.add("on");
+    activeMap = btn.dataset.m;
+    document.getElementById("v-"+activeMap).classList.add("on");
+    updateDots();
+  });
+});
+
+// ═══════════════════════════════════════════════════
+//  GPS
+// ═══════════════════════════════════════════════════
+let curLat=null, curLon=null;
+
+document.getElementById("btnGPS").addEventListener("click", () => {
+  document.getElementById("prompt").style.display = "none";
+  startGPS();
+});
+document.getElementById("btnSkip").addEventListener("click", () => {
+  document.getElementById("prompt").style.display = "none";
+});
+
+function startGPS() {
+  if (!navigator.geolocation) { setDot("err","No GPS"); return; }
+  setDot("seek","Searching…");
+  navigator.geolocation.watchPosition(
+    pos => {
+      curLat = pos.coords.latitude;
+      curLon = pos.coords.longitude;
+      setDot("ok", "±"+Math.round(pos.coords.accuracy)+"m");
+      updateDots();
+    },
+    err => setDot("err", err.code===1?"Denied":"No Signal"),
+    { enableHighAccuracy:true, timeout:20000, maximumAge:4000 }
+  );
+}
+
+function setDot(cls, txt) {
+  document.getElementById("dot").className = "dot "+cls;
+  document.getElementById("glbl").textContent = txt;
+}
+
+// ═══════════════════════════════════════════════════
+//  UPDATE GPS DOTS ON BOTH MAPS
+// ═══════════════════════════════════════════════════
+function inBounds(lat,lon,b){
+  return lat>=b.s&&lat<=b.n&&lon>=b.w&&lon<=b.e;
+}
+function nearPOI(lat,lon,pois){
+  let best=null, bd=Infinity;
+  pois.forEach(p=>{
+    const d=Math.hypot((p.lat-lat)*111000,(p.lon-lon)*88000);
+    if(d<bd){bd=d;best=p;}
+  });
+  return {name:best.n, m:Math.round(bd)};
+}
+function geo2pxSimple(lat,lon,bounds,W,H){
+  const x=(lon-bounds.w)/(bounds.e-bounds.w)*W;
+  const y=(bounds.n-lat)/(bounds.n-bounds.s)*H;
+  return [x,y];
+}
+
+function updateDots(){
+  if(!curLat) return;
+  const maps = [
+    {id:"c", bounds:CB, pois:CPOIS, W:SVG_W.c, H:SVG_H.c},
+    {id:"o", bounds:OB, pois:OPOIS, W:SVG_W.o, H:SVG_H.o},
+  ];
+  maps.forEach(m=>{
+    const dot=document.getElementById("you-"+m.id);
+    const badge=document.getElementById("bdg-"+m.id);
+    const nr=document.getElementById("nr-"+m.id);
+    const crd=document.getElementById("crd-"+m.id);
+
+    const [px,py]=geo2pxSimple(curLat,curLon,m.bounds,m.W,m.H);
+    dot.style.left=px+"px";
+    dot.style.top=py+"px";
+    dot.classList.add("on");
+
+    badge.classList.toggle("on",!inBounds(curLat,curLon,m.bounds));
+
+    const near=nearPOI(curLat,curLon,m.pois);
+    const dc = distToCamp();
+    let line = near.m<40 ? "📍 At "+near.name : "→ "+near.name+" "+near.m+"m";
+    if(dc!=null) line += "  |  ⛺ "+(dc<1000?dc+"m":(dc/1000).toFixed(1)+"km");
+    nr.textContent = line;
+
+    crd.textContent = curLat.toFixed(5)+", "+curLon.toFixed(5);
+  });
+}
+
+
+// ═══════════════════════════════════════════════════
+//  CAMP SAVE / LOAD  (localStorage — works on https)
+// ═══════════════════════════════════════════════════
+let campLat=null, campLon=null;
+try {
+  const saved = localStorage.getItem("roo26_camp");
+  if (saved) { const o=JSON.parse(saved); campLat=o.lat; campLon=o.lon; }
+} catch(e) {}
+
+function saveCamp(){
+  if(curLat==null){ alert("Waiting for GPS fix — try again in a few seconds."); return; }
+  campLat=curLat; campLon=curLon;
+  try { localStorage.setItem("roo26_camp", JSON.stringify({lat:campLat, lon:campLon})); } catch(e){}
+  updateCamp();
+  alert("⛺ Camp saved! A tent icon now marks this spot on both maps.");
+}
+
+function clearCampPrompt(){
+  if(confirm("Camp already saved. Replace with current location?")) saveCamp();
+}
+
+["c","o"].forEach(id=>{
+  document.getElementById("camp-"+id).addEventListener("click", ()=>{
+    if(campLat!=null && curLat!=null) clearCampPrompt(); else saveCamp();
+  });
+});
+
+function updateCamp(){
+  if(campLat==null) return;
+  [["c",CB,SVG_W.c,SVG_H.c],["o",OB,SVG_W.o,SVG_H.o]].forEach(([id,b,W,H])=>{
+    const [x,y]=geo2pxSimple(campLat,campLon,b,W,H);
+    const m=document.getElementById("cm-"+id);
+    m.style.left=x+"px"; m.style.top=y+"px";
+    m.classList.add("on");
+  });
+}
+updateCamp();
+
+function distToCamp(){
+  if(campLat==null||curLat==null) return null;
+  return Math.round(Math.hypot((campLat-curLat)*111000,(campLon-curLon)*88000));
+}
+
+// ═══════════════════════════════════════════════════
+//  CENTER-ON-ME
+// ═══════════════════════════════════════════════════
+["c","o"].forEach(id=>{
+  document.getElementById("cb-"+id).addEventListener("click",()=>{
+    if(!curLat) return;
+    const bounds=id==="c"?CB:OB;
+    const W=SVG_W[id], H=SVG_H[id];
+    const scale=scales[id]||1;
+    const [px,py]=geo2pxSimple(curLat,curLon,bounds,W,H);
+    const pw=document.getElementById("pw-"+id);
+    pw.scrollTo({
+      left: px*scale - pw.clientWidth/2,
+      top:  py*scale - pw.clientHeight/2,
+      behavior:"smooth"
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════
+//  PINCH-ZOOM
+// ═══════════════════════════════════════════════════
+const scales={c:1, o:1};
+
+["c","o"].forEach(id=>{
+  const inner=document.getElementById("ms-"+id);
+  let startD=0, startS=1;
+
+  function dist(e){ const dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY; return Math.hypot(dx,dy); }
+
+  inner.addEventListener("touchstart",e=>{
+    if(e.touches.length===2){ startD=dist(e); startS=scales[id]; e.preventDefault(); }
+  },{passive:false});
+
+  inner.addEventListener("touchmove",e=>{
+    if(e.touches.length===2){
+      const s=Math.min(4,Math.max(.5,startS*(dist(e)/startD)));
+      scales[id]=s;
+      inner.style.transform=`scale(${s})`;
+      e.preventDefault();
+    }
+  },{passive:false});
+
+  inner.addEventListener("touchend",()=>{ startD=0; });
+});
+
+// double-tap zoom
+let lastTap=0;
+document.querySelectorAll(".pan-wrap").forEach(el=>{
+  el.addEventListener("touchend",()=>{
+    const now=Date.now();
+    if(now-lastTap<280){
+      const s=scales[activeMap]>=2?1:2;
+      scales[activeMap]=s;
+      document.getElementById("ms-"+activeMap).style.transform=`scale(${s})`;
+    }
+    lastTap=now;
+  });
+});
+</script>
+</body>
+</html>
